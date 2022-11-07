@@ -1,12 +1,31 @@
+/**
+ * Just another brainfuck interpreter... Not much more to say!
+ * It parses the code to keep only useful chars and then execute
+ * it through another function.
+ *
+ * author: Jules.#7341
+ * date: November 7 2022
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 
 #define PARSED_CODE_SIZE 50
 #define MEMORY_SIZE 100
+#define BF_CHARS "><+-,.[]"
 
+/**
+ * Tells if a specific character is part a brainfuck operator.
+ *
+ * Args:
+ *    char c - The character to check.
+ *
+ * Returns:
+ *    int - The result of the search.
+ */
 int isPartOfBf(char c)
 {
-  char *bfChars = "><+-,.[]";
+  char *bfChars = BF_CHARS;
   int i = 0;
 
   while (bfChars[i] != '\0')
@@ -18,6 +37,41 @@ int isPartOfBf(char c)
   return 0;
 }
 
+/**
+ * Doubles allocated memory to a char *.
+ *
+ * Args:
+ *    char **memory - The pointer to the pointer, eheh.
+ *    int *memoryLength - The pointer to the initial size of the memory.
+ *
+ * Returns:
+ *    int - Tells if everything went well.
+ */
+int augmentAllocatedMemory(char **memory, int *memoryLength)
+{
+  *memoryLength = 2 * (*memoryLength);
+  char *tmp = realloc(*memory, sizeof(char) * (*memoryLength));
+  if (tmp == NULL)
+  {
+    printf("Error: failed to augment allocated memory.\n");
+    free(*memory);
+    return EXIT_FAILURE;
+  }
+  *memory = tmp;
+  return EXIT_SUCCESS;
+}
+
+/**
+ * Parse a file to extract brainfuck code from it.
+ *
+ * Args:
+ *    char **target - A pointer to the variable where the code will be saved.
+ *    int *targetLength - A pointer to the length of the '*target' variable.
+ *    FILE *fp - A pointer to the file to extract memory from.
+ *
+ * Returns:
+ *    int - Tells if everything went well.
+ */
 int parse(char **target, int *targetLength, FILE *fp)
 {
   int i = 0;
@@ -34,16 +88,10 @@ int parse(char **target, int *targetLength, FILE *fp)
 
     if (i >= *targetLength)
     {
-      // Increase target memory size if needed
-      *targetLength = 2 * (*targetLength);
-      char *tmp = realloc(*target, sizeof(char) * (*targetLength));
-      if (tmp == NULL)
+      if (augmentAllocatedMemory(target, targetLength))
       {
-        printf("Error: failed to augment allocated memory.\n");
-        free(*target);
         return EXIT_FAILURE;
       }
-      *target = tmp;
     }
   } while (readChar != EOF);
   (*target)[i] = '\0';
@@ -51,7 +99,60 @@ int parse(char **target, int *targetLength, FILE *fp)
   return EXIT_SUCCESS;
 }
 
-int execute(char *code, int **memory, int *memorySize, int *ptr)
+/**
+ * Parse the content of a loop (between '[' and ']').
+ *
+ * Args:
+ *    char **target - A pointer to the variable where the code will be saved.
+ *    int *targetLength - A pointer to the length of the '*target' variable.
+ *    char **sourceCode - A pointer to the brainfuck code.
+ *    int *posI - A pointer to the advancement of the execution of the code.
+ *
+ * Returns:
+ *    int - Tells if everything went well.
+ */
+int parseLoop(char **target, int *targetLength, char **sourceCode, int *posI)
+{
+  int openedLoops = 0;
+  int j = 0;
+
+  while (openedLoops != 0 || (*sourceCode)[*posI + j + 1] != ']')
+  {
+    if ((*sourceCode)[*posI + j + 1] == '\0')
+    {
+      printf("Error: EOF reached before end of the loop.\n");
+      return EXIT_FAILURE;
+    }
+    if ((*sourceCode)[*posI + j + 1] == '[')
+      openedLoops++;
+    if ((*sourceCode)[*posI + j + 1] == ']')
+      openedLoops--;
+    (*target)[j] = (*sourceCode)[*posI + j + 1];
+    j++;
+    if (j >= *targetLength)
+    {
+      augmentAllocatedMemory(target, targetLength);
+    }
+  }
+  (*target)[j] = '\0';
+  *posI = *posI + j + 1;
+
+  return EXIT_SUCCESS;
+}
+
+/**
+ * Executes a parsed code of brainfuck.
+ *
+ * Args:
+ *    char *code - The code to execute.
+ *    int *memory - The memory of the program.
+ *    int memorySize - The memory size.
+ *    int *ptr - A pointer to the position of the brainfuck 'fake' pointer.
+ *
+ * Returns:
+ *    int - Tells if everything went well.
+ */
+int execute(char *code, int *memory, int memorySize, int *ptr)
 {
   int i = 0;
   while (code[i] != '\0')
@@ -59,14 +160,14 @@ int execute(char *code, int **memory, int *memorySize, int *ptr)
     switch (code[i])
     {
     case '+':
-      (*memory)[*ptr]++;
+      memory[*ptr]++;
       break;
     case '-':
-      (*memory)[*ptr]--;
+      memory[*ptr]--;
       break;
     case '>':
       (*ptr)++;
-      if ((*ptr) >= *memorySize)
+      if ((*ptr) >= memorySize)
       {
         printf("Error: pointer above memory limit.\n");
         return EXIT_FAILURE;
@@ -81,50 +182,25 @@ int execute(char *code, int **memory, int *memorySize, int *ptr)
       }
       break;
     case '.':
-      putchar((*memory)[*ptr]);
+      putchar(memory[*ptr]);
       break;
     case ',':
-      (*memory)[*ptr] = getchar();
+      memory[*ptr] = getchar();
       break;
     case '[':
-      int loopSize = MEMORY_SIZE;
+      // Parse the loop
+      int loopSize = PARSED_CODE_SIZE;
       char *loop = malloc(sizeof(char) * loopSize);
-      int openedLoops = 0;
-      int j = 0;
-      while (openedLoops != 0 || code[i + j + 1] != ']')
-      {
-        if (code[i + j + 1] == '\0')
-        {
-          printf("Error: EOF reached before end of the loop.\n");
-          return EXIT_FAILURE;
-        }
-        if (code[i + j + 1] == '[')
-          openedLoops++;
-        if (code[i + j + 1] == ']')
-          openedLoops--;
-        loop[j] = code[i + j + 1];
-        j++;
-        if (j >= loopSize)
-        {
-          // Increase target memory size if needed
-          loopSize = 2 * (loopSize);
-          char *tmp = realloc(loop, sizeof(char) * (loopSize));
-          if (tmp == NULL)
-          {
-            printf("Error: failed to augment allocated memory for a loop.\n");
-            free(loop);
-            return EXIT_FAILURE;
-          }
-          loop = tmp;
-        }
-      }
-      loop[j] = '\0';
-      while ((*memory)[*ptr] != 0)
+
+      if (parseLoop(&loop, &loopSize, &code, &i))
+        return EXIT_FAILURE;
+
+      // Execute it while the cell is not empty
+      while (memory[*ptr] != 0)
       {
         if (execute(loop, memory, memorySize, ptr))
           return EXIT_FAILURE;
       }
-      i = i + j + 1;
       free(loop);
       break;
     case ']':
@@ -141,6 +217,8 @@ int execute(char *code, int **memory, int *memorySize, int *ptr)
 int main(void)
 {
   char *filename = "./tests/hello_world.bf";
+
+  /* Parse the code */
   FILE *fp = fopen(filename, "r");
   if (fp == NULL)
   {
@@ -164,9 +242,10 @@ int main(void)
     return EXIT_FAILURE;
   }
 
-  printf("; Parsed Code Length : %d\n", parsedCodeLength);
-  printf("; Parsed code : '%s'\n\n", parsedCode);
+  // printf("; Parsed Code Length : %d\n", parsedCodeLength);
+  // printf("; Parsed code : '%s'\n\n", parsedCode);
 
+  /* Execute the code */
   int memorySize = MEMORY_SIZE;
   int *memory = calloc(memorySize, sizeof(int));
   if (memory == NULL)
@@ -176,12 +255,15 @@ int main(void)
   }
 
   int ptr = 0;
-  int failedExecution = execute(parsedCode, &memory, &memorySize, &ptr);
-  if (!failedExecution)
+  int failedExecution = execute(parsedCode, memory, memorySize, &ptr);
+  if (failedExecution)
   {
-    printf("\n; Successfuly executed brainfuck code.\n\n");
+    printf("\nError: something went wrong while executing the code.\n\n");
+    return EXIT_FAILURE;
   }
+  printf("\n; Successfuly executed brainfuck code.\n\n");
 
+  /* Clean up */
   free(memory);
   free(parsedCode);
   return EXIT_SUCCESS;
